@@ -1,0 +1,189 @@
+#include <bits/stdc++.h>
+using namespace std;
+
+/*
+ ASCII Minesweeper in C++ single file
+ simple input loop
+ commands
+   r x y   reveal cell at x y  zero based
+   f x y   toggle flag at x y
+   h       help
+   q       quit
+ the first reveal is safe
+ comments are short and clear
+*/
+
+struct Cell {
+    bool mine = false;
+    bool revealed = false;
+    bool flagged = false;
+    int adj = 0;
+};
+
+struct Board {
+    int w = 0, h = 0, mines = 0;
+    vector<Cell> g;
+    bool placed = false; // mines placed yet
+    int hiddenSafe = 0;  // safe cells not revealed
+
+    Board(int W, int H, int M): w(W), h(H), mines(M) {
+        g.assign(w*h, {});
+        hiddenSafe = w*h - mines;
+    }
+
+    bool inb(int x, int y) const { return x>=0 && x<w && y>=0 && y<h; }
+    Cell& at(int x, int y) { return g[y*w + x]; }
+    const Cell& at(int x, int y) const { return g[y*w + x]; }
+
+    vector<pair<int,int>> neighbors(int x, int y) const {
+        vector<pair<int,int>> nb;
+        for (int dy=-1; dy<=1; ++dy) for (int dx=-1; dx<=1; ++dx) {
+            if (!dx && !dy) continue;
+            int nx=x+dx, ny=y+dy;
+            if (inb(nx,ny)) nb.push_back({nx,ny});
+        }
+        return nb;
+    }
+
+    void place_mines(int safeX, int safeY) {
+        // place mines after first click
+        // avoid the first cell and its neighbors
+        vector<pair<int,int>> cells;
+        cells.reserve(w*h);
+        vector<vector<bool>> forbidden(h, vector<bool>(w,false));
+        forbidden[safeY][safeX] = true;
+        for (auto [nx,ny]: neighbors(safeX,safeY)) forbidden[ny][nx] = true;
+        for (int y=0;y<h;++y) for (int x=0;x<w;++x) if (!forbidden[y][x]) cells.push_back({x,y});
+        if ((int)cells.size() < mines) throw runtime_error("too many mines for size");
+        random_device rd; mt19937 rng(rd());
+        shuffle(cells.begin(), cells.end(), rng);
+        for (int i=0;i<mines;++i) at(cells[i].first, cells[i].second).mine = true;
+        // compute adj counts
+        for (int y=0;y<h;++y) for (int x=0;x<w;++x) if (!at(x,y).mine) {
+            int c=0; for (auto [nx,ny]: neighbors(x,y)) if (at(nx,ny).mine) ++c;
+            at(x,y).adj = c;
+        }
+        placed = true;
+    }
+
+    bool reveal(int x, int y) {
+        if (!inb(x,y)) return true; // ignore out of bounds
+        if (!placed) place_mines(x,y);
+        Cell &c = at(x,y);
+        if (c.revealed || c.flagged) return true;
+        c.revealed = true;
+        if (!c.mine) --hiddenSafe;
+        if (c.mine) return false; // hit a mine
+        if (c.adj == 0) flood_from(x,y);
+        return true;
+    }
+
+    void flood_from(int sx, int sy) {
+        queue<pair<int,int>> q;
+        q.push({sx,sy});
+        while(!q.empty()) {
+            auto [x,y]=q.front(); q.pop();
+            for (auto [nx,ny]: neighbors(x,y)) {
+                Cell &t = at(nx,ny);
+                if (t.revealed || t.flagged) continue;
+                if (t.mine) continue;
+                t.revealed = true;
+                --hiddenSafe;
+                if (t.adj == 0) q.push({nx,ny});
+            }
+        }
+    }
+
+    void toggle_flag(int x, int y) {
+        if (!inb(x,y)) return;
+        Cell &c = at(x,y);
+        if (c.revealed) return;
+        c.flagged = !c.flagged;
+    }
+
+    bool won() const { return hiddenSafe == 0; }
+
+    void print(bool revealAll=false) const {
+        // print header
+        cout << "   ";
+        for (int x=0;x<w;++x) cout << setw(2) << x%100 << ' ';
+        cout << "\n";
+        cout << "   ";
+        for (int x=0;x<w;++x) cout << "---";
+        cout << "\n";
+        for (int y=0;y<h;++y) {
+            cout << setw(2) << y%100 << "| ";
+            for (int x=0;x<w;++x) {
+                const Cell &c = at(x,y);
+                char ch='.';
+                bool show = revealAll || c.revealed;
+                if (!show) {
+                    if (c.flagged) ch='F';
+                    else ch='.';
+                } else {
+                    if (c.mine) ch='*';
+                    else if (c.adj==0) ch=' ';
+                    else ch = char('0'+c.adj);
+                }
+                cout << ch << "  ";
+            }
+            cout << "\n";
+        }
+    }
+};
+
+static void help() {
+    cout << "commands" << '\n';
+    cout << "r x y  reveal" << '\n';
+    cout << "f x y  flag" << '\n';
+    cout << "h      help" << '\n';
+    cout << "q      quit" << '\n';
+}
+
+int main(int argc, char** argv) {
+    ios::sync_with_stdio(false);
+    cin.tie(nullptr);
+
+    int W=10, H=10, M=10;
+    if (argc>=4) {
+        W = max(2, atoi(argv[1]));
+        H = max(2, atoi(argv[2]));
+        M = atoi(argv[3]);
+    }
+    if (M <= 0) M = max(1, (W*H)/8);
+    M = min(M, W*H - 1);
+
+    Board b(W,H,M);
+
+    cout << "ascii minesweeper" << '\n';
+    cout << "size " << W << "x" << H << " mines " << M << '\n';
+    help();
+
+    bool alive = true;
+    while (alive) {
+        b.print();
+        if (b.won()) { cout << "you win" << '\n'; break; }
+        cout << "> ";
+        string cmd; if (!(cin >> cmd)) break;
+        if (cmd == "q") { cout << "bye" << '\n'; break; }
+        else if (cmd == "h") help();
+        else if (cmd == "r" || cmd == "f") {
+            int x,y; if (!(cin >> x >> y)) { cout << "need x y" << '\n'; cin.clear(); cin.ignore(numeric_limits<streamsize>::max(), '\n'); continue; }
+            if (!b.inb(x,y)) { cout << "out of bounds" << '\n'; continue; }
+            if (cmd == "r") {
+                bool ok = b.reveal(x,y);
+                if (!ok) {
+                    cout << "boom" << '\n';
+                    b.print(true);
+                    cout << "game over" << '\n';
+                    alive = false;
+                }
+            } else {
+                b.toggle_flag(x,y);
+            }
+        } else {
+            cout << "unknown" << '\n';
+        }
+    }
+    return 0;
+}
